@@ -9,8 +9,8 @@
 #include <GL/gl.h>
 #include <GL/glut.h>
 
-#define VIEWHEIGHT 500.0
-#define VIEWWIDTH 500.0
+#define VIEWHEIGHT 500
+#define VIEWWIDTH 500
 #define OFFHEIGHT 100
 #define OFFWIDTH 100
 
@@ -23,6 +23,8 @@ struct pt {
 	GLint x;
 	GLint y;
 } linestart, lineend, wnddim, circle[800];
+
+GLfloat viewport[VIEWHEIGHT][VIEWWIDTH][3];
 
 bool ptCompare(struct pt lhs, struct pt rhs)
 {
@@ -42,7 +44,7 @@ void display(void)
 {
 	glClear(GL_COLOR_BUFFER_BIT);
 	drawView();
-	drawFunc();
+	/* drawFunc(); */
 	glFlush();
  	glutSwapBuffers();
 }
@@ -57,7 +59,7 @@ struct pt dispToCoord(struct pt pos)
 
 float dispToFuncX(int x)
 {
-	return (x - OFFWIDTH) * (MAXX - MINX) /
+	return x * (MAXX - MINX) /
 		(VIEWWIDTH - 1) + MINX;
 }
 
@@ -85,13 +87,16 @@ void mpress(int btn, int state, int x, int y)
 
 void drawView(void)
 {
-	glColor3f(1.0f, 1.0f, 1.0f);
+	/* Draws the data stored in the viewport array */
 	glBegin(GL_POINTS);
 	struct pt bound_bl = dispToCoord((struct pt){0, 0}),
 		bound_tr = dispToCoord((struct pt){VIEWWIDTH, VIEWHEIGHT}),
-		pos = {0, 0};
-	for(pos.x = bound_bl.x; pos.x < bound_tr.x; pos.x++)
-		for(pos.y = bound_bl.y; pos.y < bound_tr.y; pos.y++) {
+		pos = {0, 0}, offset;
+	for(pos.x = bound_bl.x, offset.x = 0; pos.x < bound_tr.x; pos.x++, offset.x++)
+		for(pos.y = bound_bl.y, offset.y = 0; pos.y < bound_tr.y; pos.y++, offset.y++) {
+			glColor3f(viewport[offset.y][offset.x][0],
+								viewport[offset.y][offset.x][1],
+								viewport[offset.y][offset.x][2]);
 			glVertex2i(pos.x, pos.y);
 		}
 	glEnd();
@@ -114,7 +119,7 @@ void drawFunc(void)
 	float fY, gY;
 	for(i = OFFWIDTH; i < OFFWIDTH + VIEWWIDTH; i++) {
 		/* Calculate the functions X coordinate */
-		float funcX = dispToFuncX(i);
+		float funcX = dispToFuncX(i - OFFWIDTH);
 		int j;
 		/* Cheating.
 		 * I considered using my line drawing algorithm,
@@ -185,11 +190,66 @@ void keypress(unsigned char key, int x, int y)
 	}
 }
 
+void initViewport()
+{
+	struct pt idx;
+	for(idx.y = 0; idx.y < VIEWHEIGHT; idx.y++)
+		for(idx.x = 0; idx.x < VIEWWIDTH; idx.x++) {
+			float *coord = viewport[idx.y][idx.x];
+			if(coord[0] == 0.0f && coord[2] == 0.0f) {
+				coord[0] = 1.0f;
+				coord[1] = 1.0f;
+				coord[2] = 1.0f;
+			}
+		}
+}
+
+void calcFuncs()
+{
+	/* Precompute the functions and how they look on the viewport *
+	 * Use one color for each function, *
+	 * and then finish with a final pass */
+	int i;
+	for(i = 0; i < VIEWWIDTH; i++) {
+		float funcX = dispToFuncX(i);
+		int vfY, vgY;
+		/* Number of points to draw per x coordinate */
+		const int xpCount = 64;
+		int j;
+		for(j = 0; j < 64; j++) {
+			float fY = f(funcX);
+			float gY = g(funcX);
+			funcX += 1 / (float)xpCount * (MAXX - MINX) / (VIEWWIDTH - 1);
+			/* Convert the Y coordinate to the viewports coordinates */
+			vfY = (fY - MINY) * VIEWHEIGHT / (MAXY - MINY);
+			vgY = (gY - MINY) * VIEWHEIGHT / (MAXY - MINY);
+			if(vfY < VIEWHEIGHT && vfY > 0)
+				viewport[vfY][i][0] = 1.0f;
+			if(vgY < VIEWHEIGHT && vgY > 0)
+				viewport[vgY][i][2] = 1.0f;
+		}
+	}
+	for(i = 0; i < VIEWHEIGHT; i++) {
+		int j;
+		for(j = 0; j < VIEWWIDTH; j++) {
+			if(viewport[i][j][0] && viewport[i][j][2])
+				viewport[i][j][2] = 0.0f;
+			else if(viewport[i][j][0]) {
+				viewport[i][j][0] = 0.0f;
+				viewport[i][j][2] = 1.0f;
+			}
+		}
+	}
+}
+
 int main(int argc, char **argv)
 {
 	memset(&linestart, 0, sizeof(linestart));
 	memset(&lineend, 0, sizeof(lineend));
 	memset(&wnddim, 0, sizeof(wnddim));
+	memset(viewport, 0.0f, sizeof(viewport));
+	calcFuncs();
+	initViewport();
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
 	glutInitWindowPosition(100, 10);
